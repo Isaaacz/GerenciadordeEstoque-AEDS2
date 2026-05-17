@@ -1,0 +1,338 @@
+================================================================================
+CÓDIGO COMPLETO - SISTEMA DE GERENCIAMENTO DE ESTOQUE (AEDS II)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. TAD ENTIDADES (entidades.h)
+Define as structs básicas e atende ao Item 1 das instruções.
+--------------------------------------------------------------------------------
+#ifndef ENTIDADES_H
+#define ENTIDADES_H
+
+/**
+ * TAD Entidades: Define as estruturas básicas do sistema.
+ * Atende ao item 1 das instruções (Implementar estruturas).
+ */
+
+typedef struct {
+    int id;
+    char nome[50];
+    char cnpj[20];
+} Fornecedor;
+
+typedef struct {
+    int id;
+    char nome[50];
+    char cargo[30];
+} Funcionario;
+
+typedef struct {
+    int id;
+    char nome[50];
+    double preco;
+    int qtd_estoque;
+    int id_fornecedor; // Relacionamento com Fornecedor
+    int id_funcionario; // Relacionamento com Funcionario
+} Produto;
+
+#endif // ENTIDADES_H
+
+
+--------------------------------------------------------------------------------
+2. TAD PRODUTO (produto.h e produto.c)
+Gerencia persistência, buscas (Item 3) e massa de dados (Item 4).
+--------------------------------------------------------------------------------
+--- produto.h ---
+#ifndef PRODUTO_H
+#define PRODUTO_H
+
+#include <stdio.h>
+#include "entidades.h"
+
+void salva_produto(Produto *p, FILE *out);
+Produto *le_produto(FILE *in);
+Produto *buscaSequencial(int chave, FILE *in, int *comps);
+Produto *buscaBinaria(int chave, FILE *in, int inicio, int fim, int *comps);
+FILE* gerar_base_teste(FILE *out, int quantidade);
+
+#endif // PRODUTO_H
+
+--- produto.c ---
+#include "produto.h"
+#include <stdlib.h>
+
+/**
+ * TAD Produto: Gerencia a persistência e algoritmos de busca.
+ * Atende aos itens 2, 3 e 4 das instruções.
+ */
+
+// Salva um produto no final do arquivo (Item 2: Base de dados)
+void salva_produto(Produto *p, FILE *out) {
+    fwrite(p, sizeof(Produto), 1, out);
+}
+
+// Lê um produto da posição atual do ponteiro do arquivo
+Produto *le_produto(FILE *in) {
+    Produto *p = (Produto *) malloc(sizeof(Produto));
+    if (fread(p, sizeof(Produto), 1, in) <= 0) {
+        free(p);
+        return NULL;
+    }
+    return p;
+}
+
+/**
+ * Busca Sequencial (Item 3)
+ * Percorre o arquivo do início ao fim até encontrar a chave.
+ * O parâmetro 'comps' conta as comparações (Item 5).
+ */
+Produto *buscaSequencial(int chave, FILE *in, int *comps) {
+    rewind(in);
+    Produto *p;
+    *comps = 0;
+    while ((p = le_produto(in)) != NULL) {
+        (*comps)++;
+        if (p->id == chave) return p;
+        free(p);
+    }
+    return NULL;
+}
+
+/**
+ * Busca Binária (Item 3)
+ * Exige que o arquivo esteja ordenado por ID.
+ * Usa fseek para saltar diretamente para o meio do intervalo.
+ */
+Produto *buscaBinaria(int chave, FILE *in, int inicio, int fim, int *comps) {
+    *comps = 0;
+    while (inicio <= fim) {
+        int meio = (inicio + fim) / 2;
+        fseek(in, meio * sizeof(Produto), SEEK_SET);
+        Produto *p = le_produto(in);
+        if (p) {
+            (*comps)++;
+            if (p->id == chave) return p;
+            if (p->id > chave) fim = meio - 1;
+            else inicio = meio + 1;
+            free(p);
+        } else break;
+    }
+    return NULL;
+}
+
+/**
+ * Geração de Massa de Dados (Item 4)
+ * Permite criar diferentes tamanhos de base para testes de performance.
+ */
+FILE* gerar_base_teste(FILE *out, int quantidade) {
+    fclose(out);
+    out = fopen("produtos.dat", "w+b");
+    if (!out) return NULL;
+
+    for (int i = 1; i <= quantidade; i++) {
+        Produto p;
+        p.id = i;
+        sprintf(p.nome, "Produto_%d", i);
+        p.preco = (double)(rand() % 1000) / 10.0;
+        p.qtd_estoque = rand() % 100;
+        p.id_fornecedor = (i % 5) + 1; // Simula diferentes fornecedores
+        p.id_funcionario = (i % 3) + 1; // Simula diferentes funcionários
+        fwrite(&p, sizeof(Produto), 1, out);
+    }
+    fflush(out);
+    return out;
+}
+
+
+--------------------------------------------------------------------------------
+3. TAD LOG (log.h e log.c)
+Grava as métricas de performance exigidas no Item 5.
+--------------------------------------------------------------------------------
+--- log.h ---
+#ifndef LOG_H
+#define LOG_H
+
+void salvar_log(const char *metodo, int comparacoes, double tempo);
+
+#endif // LOG_H
+
+--- log.c ---
+#include "log.h"
+#include <stdio.h>
+
+/**
+ * TAD Log: Responsável por persistir métricas de performance.
+ * Atende ao item 5 das instruções (Contagem de comparações e tempo).
+ */
+
+void salvar_log(const char *metodo, int comparacoes, double tempo) {
+    FILE *log = fopen("log.txt", "a");
+    if(log) {
+        // Grava o método de busca, o número de comparações feitas e o tempo em milissegundos
+        fprintf(log, "Metodo: %s | Comparacoes: %d | Tempo: %.4f ms\n", metodo, comparacoes, tempo);
+        fclose(log);
+    }
+}
+
+
+--------------------------------------------------------------------------------
+4. TAD MENU (menu.h e menu.c)
+Interação com o usuário e demonstração de interação entre entidades (Item 6).
+--------------------------------------------------------------------------------
+--- menu.h ---
+#ifndef MENU_H
+#define MENU_H
+
+#include <stdio.h>
+
+void exibir_menu();
+void executar_menu(FILE **arq_produtos);
+
+#endif // MENU_H
+
+--- menu.c ---
+#include "menu.h"
+#include "entidades.h"
+#include "produto.h"
+#include "log.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+/**
+ * TAD Menu: Gerencia a interação com o usuário.
+ */
+
+void exibir_menu() {
+    printf("\n======= SISTEMA DE ESTOQUE - AEDS 2 =======");
+    printf("\n1. Cadastrar Produto");
+    printf("\n2. Buscar Produto (Sequencial)");
+    printf("\n3. Buscar Produto (Binaria)");
+    printf("\n4. Listar todos os Produtos");
+    printf("\n5. Gerar Base de Teste (Massa de Dados)");
+    printf("\n0. Sair");
+    printf("\nEscolha uma opcao: ");
+}
+
+/**
+ * Simula a interação entre entidades (Item 6 das instruções).
+ * Mostra qual fornecedor é responsável pelo produto encontrado.
+ */
+void exibir_interacao_entidades(Produto *p) {
+    printf("\n--- Interacao entre Entidades (Item 6) ---");
+    printf("\nO Produto '%s' e fornecido pelo Fornecedor ID: %d", p->nome, p->id_fornecedor);
+    printf("\nO cadastro foi realizado pelo Funcionario ID: %d\n", p->id_funcionario);
+}
+
+void executar_menu(FILE **arq_produtos) {
+    int opcao = -1;
+
+    while (opcao != 0) {
+        exibir_menu();
+        if (scanf("%d", &opcao) != 1) {
+            while (getchar() != '\n'); // Limpa buffer em caso de erro de entrada
+            continue;
+        }
+
+        if (opcao == 1) {
+            Produto p;
+            printf("ID: "); scanf("%d", &p.id);
+            printf("Nome: "); scanf("%s", p.nome);
+            printf("Preco: "); scanf("%lf", &p.preco);
+            printf("Qtd Estoque: "); scanf("%d", &p.qtd_estoque);
+            printf("ID Fornecedor: "); scanf("%d", &p.id_fornecedor);
+            printf("ID Funcionario: "); scanf("%d", &p.id_funcionario);
+
+            fseek(*arq_produtos, 0, SEEK_END);
+            salva_produto(&p, *arq_produtos);
+            printf("Produto cadastrado com sucesso!\n");
+
+        } else if (opcao == 2 || opcao == 3) {
+            int chave, comps = 0;
+            printf("Digite o ID para busca: ");
+            if (scanf("%d", &chave) != 1) {
+                while (getchar() != '\n');
+                continue;
+            }
+
+            // Início da medição de tempo (Item 5)
+            clock_t t = clock();
+            Produto *res = NULL;
+
+            if (opcao == 2) {
+                res = buscaSequencial(chave, *arq_produtos, &comps);
+            } else {
+                // Cálculo de registros para Busca Binária (Item 3)
+                fseek(*arq_produtos, 0, SEEK_END);
+                long tamanho_arquivo = ftell(*arq_produtos);
+                int total_reg = (int)(tamanho_arquivo / sizeof(Produto));
+                res = buscaBinaria(chave, *arq_produtos, 0, total_reg - 1, &comps);
+            }
+
+            t = clock() - t; // Fim da medição
+            double tempo_ms = ((double)t) / CLOCKS_PER_SEC * 1000.0;
+            
+            // Salva resultados no log (Item 5)
+            salvar_log(opcao == 2 ? "Sequencial" : "Binaria", comps, tempo_ms);
+
+            if (res) {
+                printf("\n--- Produto Encontrado ---");
+                printf("\nID: %d | Nome: %s | Preco: %.2f | Estoque: %d\n", res->id, res->nome, res->preco, res->qtd_estoque);
+                
+                // Demonstra a interação entre entidades (Item 6)
+                exibir_interacao_entidades(res);
+                
+                free(res);
+            } else {
+                printf("\nProduto com ID %d nao encontrado.\n", chave);
+            }
+
+        } else if (opcao == 4) {
+            rewind(*arq_produtos);
+            Produto *p;
+            printf("\n--- Lista de Produtos ---\n");
+            int encontrou = 0;
+            while ((p = le_produto(*arq_produtos)) != NULL) {
+                printf("ID: %d | Nome: %s | Preco: %.2f\n", p->id, p->nome, p->preco);
+                free(p);
+                encontrou = 1;
+            }
+            if (!encontrou) printf("Nenhum produto cadastrado.\n");
+
+        } else if (opcao == 5) {
+            int qtd;
+            printf("Quantidade de produtos para gerar (Item 4): ");
+            if (scanf("%d", &qtd) == 1) {
+                *arq_produtos = gerar_base_teste(*arq_produtos, qtd);
+                if (*arq_produtos) {
+                    printf("%d produtos gerados com sucesso (base antiga apagada)!\n", qtd);
+                } else {
+                    printf("Erro ao recriar a base de dados.\n");
+                }
+            } else {
+                while (getchar() != '\n');
+            }
+        }
+    }
+}
+
+
+--------------------------------------------------------------------------------
+5. MAIN (main.c)
+Ponto de entrada do sistema.
+--------------------------------------------------------------------------------
+#include <stdio.h>
+#include "menu.h"
+
+int main() {
+    FILE *arq_produtos = fopen("produtos.dat", "a+b");
+    if (!arq_produtos) {
+        perror("Erro ao abrir arquivo de produtos");
+        return 1;
+    }
+
+    executar_menu(&arq_produtos);
+
+    fclose(arq_produtos);
+    return 0;
+}
